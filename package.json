@@ -1,0 +1,54 @@
+{
+  "name": "llamacpp-manage",
+  "version": "1.0.0",
+  "private": true,
+  "description": "llama.cpp 模型启动命令管理器",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "vite",
+    "build": "vite build",
+    "test:roundtrip": "node test/roundtrip.js",
+    "test:shutdown": "node test/smoke-electron.js",
+    "electron:dev": "npm run build && electron .",
+    "electron:build": "npm run build && electron-builder --win"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@element-plus/icons-vue": "^2.3.1",
+    "@vitejs/plugin-vue": "^6.0.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
+    "element-plus": "^2.9.0",
+    "vite": "^7.0.0",
+    "vue": "^3.5.0"
+  },
+  "build": {
+    "appId": "com.llamacpp.manage",
+    "productName": "llamacpp-manage",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "server/**/*",
+      "electron/**/*",
+      "web/dist/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "portable"
+      ]
+    },
+    "portable": {
+      "artifactName": "llamacpp-manage-${version}-portable.exe"
+    }
+  },
+  "allowScripts": {
+    "electron@33.4.11": true,
+    "esbuild@0.28.2": true
+  }
+}
