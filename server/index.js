@@ -80,6 +80,25 @@ app.post('/api/profiles', (req, res) => {
   res.json(profile)
 })
 
+// 拖拽排序：按前端给出的 id 顺序重排（须注册在 /:id 之前）
+app.put('/api/profiles/reorder', (req, res) => {
+  const ids = (req.body || {}).ids
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: '缺少 ids 数组' })
+  const profiles = store.loadProfiles()
+  const byId = new Map(profiles.map(p => [p.id, p]))
+  const next = []
+  for (const id of ids) {
+    const p = byId.get(id)
+    if (!p) return res.status(400).json({ error: `未知配置 id: ${id}` })
+    next.push(p)
+    byId.delete(id)
+  }
+  // 请求未覆盖的配置追加在末尾，避免丢数据
+  for (const p of byId.values()) next.push(p)
+  store.saveProfiles(next)
+  res.json({ ok: true })
+})
+
 app.put('/api/profiles/:id', (req, res) => {
   const profiles = store.loadProfiles()
   const p = profiles.find(x => x.id === req.params.id)

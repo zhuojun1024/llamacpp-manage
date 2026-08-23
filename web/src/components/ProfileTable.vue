@@ -7,7 +7,17 @@
       </div>
     </template>
 
-    <el-table :data="filtered" size="small" height="100%" v-loading="state.loading">
+    <div class="table-wrap" @dragover.prevent="onDragOver" @drop.prevent>
+    <el-table :data="filtered" size="small" height="100%" v-loading="state.loading" row-key="id">
+      <el-table-column width="40" align="center">
+        <template #default="{ row }">
+          <span class="drag-handle" :class="{ disabled: !!filter }" :draggable="!filter"
+            :title="filter ? '搜索时不可排序' : '拖拽排序'"
+            @dragstart="onDragStart(row, $event)" @dragend="onDragEnd">
+            <el-icon><Rank /></el-icon>
+          </span>
+        </template>
+      </el-table-column>
       <el-table-column label="名称 / 描述" min-width="180">
         <template #default="{ row }">
           <div class="name">{{ row.name }}</div>
@@ -19,9 +29,9 @@
           <span class="mono">{{ modelBase(row) }}</span>
         </template>
       </el-table-column> -->
-      <el-table-column label="端口" width="70">
+      <!-- <el-table-column label="端口" width="70">
         <template #default="{ row }">{{ portOf(row) }}</template>
-      </el-table-column>
+      </el-table-column> -->
       <el-table-column label="上下文" width="80">
         <template #default="{ row }">{{ ctxOf(row) || '—' }}</template>
       </el-table-column>
@@ -48,6 +58,7 @@
         </template>
       </el-table-column>
     </el-table>
+    </div>
   </el-card>
 </template>
 
@@ -60,6 +71,7 @@ import { api } from '../api'
 const emit = defineEmits(['new', 'edit'])
 const filter = ref('')
 const stoppingId = ref('')
+const dragId = ref('') // 拖拽中的配置 id，空串表示未在拖拽
 
 // 当前运行中的配置（每次只能运行一个模型，服务端同样强制限制）
 const otherRunning = computed(() => state.profiles.find(p => p.run) || null)
@@ -100,6 +112,40 @@ function fieldsOf(p) {
     if (e.flag && map[e.flag]) out[map[e.flag]] = e.value
   }
   return out
+}
+
+// 拖拽排序（仅无搜索过滤时可用，避免局部顺序映射到全量列表出错）
+function onDragStart(row, e) {
+  dragId.value = row.id
+  e.dataTransfer.effectAllowed = 'move'
+  e.dataTransfer.setData('text/plain', row.id) // 不调 setData 部分浏览器不会真正开始拖拽
+}
+function onDragOver(e) {
+  if (!dragId.value) return
+  e.dataTransfer.dropEffect = 'move'
+  const tr = e.target.closest('.el-table__row')
+  if (!tr) return
+  // 按 tr 在表体中的位置定位目标行（fixed 列同表体，索引一致）
+  const to = Array.from(tr.parentElement.querySelectorAll('.el-table__row')).indexOf(tr)
+  const target = filtered.value[to]
+  if (!target || target.id === dragId.value) return
+  // 拖拽中位置持续变化，每次按 id 重新查找下标
+  const from = state.profiles.findIndex(p => p.id === dragId.value)
+  const ti = state.profiles.findIndex(p => p.id === target.id)
+  if (from < 0 || ti < 0 || from === ti) return
+  const list = state.profiles
+  const [moved] = list.splice(from, 1)
+  list.splice(ti, 0, moved)
+}
+async function onDragEnd() {
+  if (!dragId.value) return
+  dragId.value = ''
+  try {
+    await api.reorderProfiles(state.profiles.map(p => p.id))
+  } catch (e) {
+    ElMessage.error(e.message)
+    refreshProfiles() // 持久化失败，回滚到服务端顺序
+  }
 }
 
 async function onStart(row) {
@@ -143,7 +189,11 @@ async function onDelete(row) {
 <style scoped>
 .table-card { height: 100%; display: flex; flex-direction: column; }
 .table-card :deep(.el-card__body) { flex: 1; overflow: hidden; }
+.table-wrap { height: 100%; }
 .card-head { display: flex; justify-content: space-between; align-items: center; }
+.drag-handle { cursor: grab; color: #909399; }
+.drag-handle:active { cursor: grabbing; }
+.drag-handle.disabled { cursor: not-allowed; color: #c0c4cc; }
 .name { font-weight: 600; }
 .desc { color: #909399; font-size: 12px; }
 .mono { font-family: Consolas, monospace; font-size: 12px; }

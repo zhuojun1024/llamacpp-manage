@@ -19,6 +19,7 @@ export const api = {
   createProfile: (p) => req('POST', '/api/profiles', p),
   updateProfile: (id, p) => req('PUT', `/api/profiles/${id}`, p),
   deleteProfile: (id) => req('DELETE', `/api/profiles/${id}`),
+  reorderProfiles: (ids) => req('PUT', '/api/profiles/reorder', { ids }),
   startProfile: (id) => req('POST', `/api/profiles/${id}/start`),
   stopRun: (id) => req('POST', `/api/runs/${id}/stop`),
   listRuns: () => req('GET', '/api/runs'),
