@@ -134,27 +134,39 @@ watch(totalLines, async () => {
 // 运行实例变化（启动/停止）时重置滚动状态并回到最新日志
 watch(() => activeRun.value && activeRun.value.profileId, async () => {
   atBottom = true
+  lastTop = -1
   viewStartRef.value = 0
   if (autoScroll.value) await scrollBottom()
 })
 async function scrollBottom() {
   await nextTick()
+  if (!atBottom) return // 等待期间用户已向上滚动（滚轮事件），放弃回拉，避免把用户拽回底部
   const el = activeBox()
   if (el) el.scrollTop = el.scrollHeight
 }
+let lastTop = -1 // 上次 scrollTop，用于判断滚动方向
 function onScroll() {
   const el = activeBox()
   if (!el) return
-  const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < 30
-  atBottom = atEnd
+  const top = el.scrollTop
+  const goingDown = top >= lastTop
+  lastTop = top
+  const atEnd = el.scrollHeight - top - el.clientHeight < 30
   if (atEnd) {
-    // 回到底部：窗口跳到最新（若之前冻结，此处一次性显示被跳过的日志）
-    viewStartRef.value = Math.max(0, totalLines.value - RENDER_LIMIT)
-    scrollBottom()
+    if (goingDown) {
+      // 向下滚回/拖回底部：恢复跟随，窗口跳到最新（一次性显示被跳过的日志）
+      if (!atBottom) viewStartRef.value = Math.max(0, totalLines.value - RENDER_LIMIT)
+      atBottom = true
+      scrollBottom()
+    } else {
+      // 向上滚轮落在 30px 判定区内：同样视为离开底部，不恢复跟随（否则小位移滚轮会被反复拽回）
+      atBottom = false
+    }
   } else {
     // 向上滚动：冻结窗口起点，新日志追加在下方，不打断阅读
+    atBottom = false
     viewStartRef.value = Math.min(viewStartRef.value, Math.max(0, totalLines.value - RENDER_LIMIT))
-    if (el.scrollTop < 30 && viewStart.value > 0) extendUp(el)
+    if (top < 30 && viewStart.value > 0) extendUp(el)
   }
 }
 // 滚到窗口顶部且缓冲中还有更早日志：向前扩展窗口并保持阅读位置
