@@ -19,13 +19,13 @@
     <div v-else class="run-panel">
       <!-- 关键信息卡片（左侧实例信息 + 右侧 GPU 显存/利用率） -->
       <div class="keyinfo-bar">
-        <div class="keyinfo" v-if="keyInfo(activeRun).listenPort || keyInfo(activeRun).loadTimeMs">
-          <el-tag v-if="keyInfo(activeRun).listenPort" type="success" size="small">
-            监听 {{ keyInfo(activeRun).listenHost || 'localhost' }}:{{ keyInfo(activeRun).listenPort }}
+        <div class="keyinfo" v-if="activeKeyInfo.listenPort || activeKeyInfo.loadTimeMs">
+          <el-tag v-if="activeKeyInfo.listenPort" type="success" size="small">
+            监听 {{ activeKeyInfo.listenHost || 'localhost' }}:{{ activeKeyInfo.listenPort }}
           </el-tag>
-          <el-tag v-if="keyInfo(activeRun).loadTimeMs" type="info" size="small">load time {{ keyInfo(activeRun).loadTimeMs }} ms</el-tag>
-          <el-tag v-if="keyInfo(activeRun).nCtx" type="info" size="small">n_ctx {{ keyInfo(activeRun).nCtx }}</el-tag>
-          <el-tag v-if="keyInfo(activeRun).nGpuLayers" type="info" size="small">n_gpu_layers {{ keyInfo(activeRun).nGpuLayers }}</el-tag>
+          <el-tag v-if="activeKeyInfo.loadTimeMs" type="info" size="small">load time {{ activeKeyInfo.loadTimeMs }} ms</el-tag>
+          <el-tag v-if="activeKeyInfo.nCtx" type="info" size="small">n_ctx {{ activeKeyInfo.nCtx }}</el-tag>
+          <el-tag v-if="activeKeyInfo.nGpuLayers" type="info" size="small">n_gpu_layers {{ activeKeyInfo.nGpuLayers }}</el-tag>
           <el-tag :type="activeRun.status === 'running' ? 'success' : activeRun.status === 'starting' ? 'warning' : 'danger'" size="small">
             {{ statusText(activeRun.status) }}
           </el-tag>
@@ -50,10 +50,12 @@
         </div>
       </div>
 
-      <!-- 日志区 -->
+      <!-- 日志区：只渲染最近 RENDER_LIMIT 行，DOM 节点数恒定；向上滚到顶加载更早日志 -->
       <div ref="boxRef" class="logbox" @scroll="onScroll">
-        <div v-for="(l, i) in visibleLines(activeRun)" :key="i" :class="['line', 'lv-' + l.level]">{{ l.line }}</div>
-        <div v-if="!visibleLines(activeRun).length" class="line dim">（无日志）</div>
+        <div v-if="viewStart > 0" class="line dim">… 上方还有 {{ viewStart }} 行，滚动到顶部加载</div>
+        <div v-for="l in visibleLines" :key="l.id" :class="['line', 'lv-' + l.level]">{{ l.line }}</div>
+        <div v-if="!totalLines" class="line dim">（无日志）</div>
+        <div v-else-if="!visibleLines.length" class="line dim">（无匹配日志）</div>
       </div>
     </div>
   </el-card>
@@ -64,6 +66,8 @@ import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import { state, logBuf } from '../store'
 import { api } from '../api'
+
+const RENDER_LIMIT = 500 // 单次渲染的日志行数上限（完整日志可点「下载」获取）
 
 const search = ref('')
 const autoScroll = ref(true)
@@ -94,37 +98,43 @@ onBeforeUnmount(() => {
 })
 const boxRef = ref(null) // 日志容器 DOM（同时只运行一个模型，单个 ref 即可）
 let atBottom = true
+let extending = false
 
 const runList = computed(() => Object.values(state.runs))
 const activeRun = computed(() => runList.value[0] || null) // 同时只运行一个模型
+const activeBuf = computed(() => (activeRun.value ? logBuf(activeRun.value.profileId) : null))
+const activeKeyInfo = computed(() => (activeBuf.value ? activeBuf.value.keyInfo : {}))
+const totalLines = computed(() => (activeBuf.value ? activeBuf.value.lines.length : 0))
 
-function keyInfo(run) {
-  return logBuf(run.profileId).keyInfo
-}
 function statusText(s) {
   return { starting: '启动中', running: '运行中', lost: '失联' }[s] || s
 }
-function visibleLines(run) {
-  const buf = logBuf(run.profileId)
+
+// 渲染窗口 [viewStart, viewStart+RENDER_LIMIT)：位于底部时跟随最新行；
+// 用户向上滚动后起点冻结，新日志追加在下方，不打断阅读
+const viewStartRef = ref(0)
+const viewStart = computed(() => Math.min(viewStartRef.value, Math.max(0, totalLines.value - RENDER_LIMIT)))
+const visibleLines = computed(() => {
+  const lines = activeBuf.value ? activeBuf.value.lines : []
+  const slice = lines.slice(viewStart.value, viewStart.value + RENDER_LIMIT)
   const f = search.value.trim().toLowerCase()
-  if (!f) return buf.lines
-  return buf.lines.filter(l => l.line.toLowerCase().includes(f))
-}
+  return f ? slice.filter(l => l.line.toLowerCase().includes(f)) : slice
+})
 
 function activeBox() {
   return boxRef.value
 }
 
-// 自动滚动
-watch(() => {
-  const run = activeRun.value
-  return run ? logBuf(run.profileId).lines.length : 0
-}, async () => {
-  if (autoScroll.value && atBottom) await scrollBottom()
+// 新日志到达：位于底部时窗口跟随最新；开启自动滚动时滚到底部
+watch(totalLines, async () => {
+  if (!atBottom) return
+  viewStartRef.value = Math.max(0, totalLines.value - RENDER_LIMIT)
+  if (autoScroll.value) await scrollBottom()
 })
 // 运行实例变化（启动/停止）时重置滚动状态并回到最新日志
 watch(() => activeRun.value && activeRun.value.profileId, async () => {
   atBottom = true
+  viewStartRef.value = 0
   if (autoScroll.value) await scrollBottom()
 })
 async function scrollBottom() {
@@ -135,7 +145,30 @@ async function scrollBottom() {
 function onScroll() {
   const el = activeBox()
   if (!el) return
-  atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 30
+  const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < 30
+  atBottom = atEnd
+  if (atEnd) {
+    // 回到底部：窗口跳到最新（若之前冻结，此处一次性显示被跳过的日志）
+    viewStartRef.value = Math.max(0, totalLines.value - RENDER_LIMIT)
+    scrollBottom()
+  } else {
+    // 向上滚动：冻结窗口起点，新日志追加在下方，不打断阅读
+    viewStartRef.value = Math.min(viewStartRef.value, Math.max(0, totalLines.value - RENDER_LIMIT))
+    if (el.scrollTop < 30 && viewStart.value > 0) extendUp(el)
+  }
+}
+// 滚到窗口顶部且缓冲中还有更早日志：向前扩展窗口并保持阅读位置
+async function extendUp(el) {
+  if (extending) return
+  extending = true
+  try {
+    const prevHeight = el.scrollHeight
+    viewStartRef.value = Math.max(0, viewStartRef.value - RENDER_LIMIT)
+    await nextTick()
+    el.scrollTop += el.scrollHeight - prevHeight
+  } finally {
+    extending = false
+  }
 }
 
 async function onDownload() {
