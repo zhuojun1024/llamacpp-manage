@@ -1,30 +1,30 @@
 <template>
-  <el-dialog v-model="vis" :title="isEdit ? '编辑配置' : '新建配置'" width="880px" top="4vh" destroy-on-close>
+  <el-dialog v-model="vis" :title="isEdit ? 'EDIT PROFILE' : 'NEW PROFILE'" width="880px" top="4vh" destroy-on-close>
     <div v-if="metaLoaded" class="form-body">
       <!-- 粘贴命令解析 -->
       <el-collapse class="paste">
-        <el-collapse-item title="粘贴现有命令一键解析（将覆盖当前表单内容）">
-          <el-input v-model="pasteCmd" placeholder='例如: C:\llama\llama-server.exe -m "D:\LLM\xxx.gguf" -ngl 99 ...' />
-          <el-button size="small" type="primary" plain style="margin-top: 6px" @click="onPasteParse">解析并填入</el-button>
+        <el-collapse-item title="PASTE CMD TO PARSE (will overwrite current form)">
+          <el-input v-model="pasteCmd" placeholder='e.g. C:\llama\llama-server.exe -m "D:\LLM\xxx.gguf" -ngl 99 ...' />
+          <el-button link type="primary" style="margin-top: 6px" @click="onPasteParse">PARSE & FILL</el-button>
         </el-collapse-item>
       </el-collapse>
 
       <el-form label-width="150px" label-position="right" size="default">
-        <el-divider content-position="left">基础</el-divider>
+        <el-divider content-position="left">BASIC</el-divider>
         <el-row :gutter="12">
           <el-col :span="12">
-            <el-form-item label="名称" required>
-              <el-input v-model="form.name" placeholder="配置名称" />
+            <el-form-item label="NAME" required>
+              <el-input v-model="form.name" placeholder="profile name" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="描述">
-              <el-input v-model="form.description" placeholder="备注（如速度、用途）" />
+            <el-form-item label="DESC">
+              <el-input v-model="form.description" placeholder="notes (speed, use case...)" />
             </el-form-item>
           </el-col>
         </el-row>
-        <el-form-item label="llama-server 路径" required>
-          <el-input v-model="form.exe" placeholder="C:\llama\llama-server.exe" />
+        <el-form-item label="llama-server">
+          <el-input v-model="form.exe" placeholder="empty = use default path from settings" />
         </el-form-item>
 
         <template v-for="g in groups" :key="g.key">
@@ -36,7 +36,7 @@
                 <el-switch v-if="f.bool" :model-value="fieldValue(f.name) === 'true'" @change="v => setField(f.name, v)" />
                 <!-- 带选项的下拉（可自定义输入） -->
                 <el-select v-else-if="f.options" :model-value="fieldValue(f.name)" filterable allow-create default-first-option
-                  clearable placeholder="选择或输入" style="width: 100%" @change="v => setField(f.name, v)">
+                  clearable placeholder="select or type" style="width: 100%" @change="v => setField(f.name, v)">
                   <el-option v-for="o in f.options" :key="o" :label="o" :value="o" />
                 </el-select>
                 <!-- 数值滑杆（如上下文长度） -->
@@ -48,34 +48,43 @@
                 <!-- 模型/模板路径：目录自动补全 -->
                 <el-autocomplete v-else-if="isPathField(f.name)" :model-value="fieldValue(f.name)"
                   :fetch-suggestions="qs => pathSuggestions(f.name, qs)" clearable
-                  placeholder="输入路径，支持自动补全 .gguf" style="width: 100%"
+                  placeholder="path, .gguf autocomplete" style="width: 100%"
                   @input="v => setField(f.name, v)" @select="it => setField(f.name, it.value)" />
                 <!-- 普通输入 -->
                 <el-input v-else :model-value="fieldValue(f.name)" clearable
-                  :placeholder="f.type === 'int' || f.type === 'float' ? '数值' : ''"
+                  :placeholder="f.type === 'int' || f.type === 'float' ? 'number' : ''"
                   @input="v => setField(f.name, v)" />
               </el-form-item>
             </el-col>
           </el-row>
         </template>
 
-        <el-divider content-position="left">其他参数（原样追加到命令末尾）</el-divider>
-        <el-form-item label="额外参数">
+        <el-divider content-position="left">ENV (set before llama-server starts)</el-divider>
+        <el-form-item label="env">
+          <el-input v-model="form.env" type="textarea" :rows="3"
+            placeholder="one KEY=VALUE per line, e.g. CUDA_VISIBLE_DEVICES=0 or HF_TOKEN=*** # = comment; empty = none" />
+        </el-form-item>
+
+        <el-divider content-position="left">EXTRA ARGS (appended to command as-is)</el-divider>
+        <el-form-item label="extra">
           <el-input v-model="extraText" type="textarea" :rows="3"
-            placeholder="每行一个，例如 --log-disable 或 --foo bar；留空则不追加" />
+            placeholder="one per line, e.g. --log-disable or --foo bar; quote values with spaces/special chars (JSON); empty = none" />
         </el-form-item>
       </el-form>
 
       <el-divider />
       <div class="preview">
-        <div class="preview-label">命令预览</div>
+        <div class="preview-head">
+          <span class="preview-label">CMD PREVIEW</span>
+          <el-button link type="primary" @click="onCopyCmd">COPY</el-button>
+        </div>
         <pre class="mono">{{ preview }}</pre>
       </div>
     </div>
 
     <template #footer>
-      <el-button @click="vis = false">取消</el-button>
-      <el-button type="primary" :loading="saving" @click="onSave">保存</el-button>
+      <el-button link @click="vis = false">CANCEL</el-button>
+      <el-button link type="primary" :loading="saving" @click="onSave">SAVE</el-button>
     </template>
   </el-dialog>
 </template>
@@ -107,7 +116,7 @@ const groupFields = computed(() => {
   return m
 })
 
-const form = ref({ name: '', description: '', exe: '', args: [] })
+const form = ref({ name: '', description: '', exe: '', args: [], env: '' })
 const extraText = ref('')
 const pasteCmd = ref('')
 const saving = ref(false)
@@ -125,16 +134,17 @@ watch(() => props.visible, (v) => {
       name: props.profile.name,
       description: props.profile.description || '',
       exe: props.profile.exe,
-      args: JSON.parse(JSON.stringify(props.profile.args || []))
+      args: JSON.parse(JSON.stringify(props.profile.args || [])),
+      env: props.profile.env || ''
     }
   } else {
-    form.value = { name: '', description: '', exe: '', args: [] }
+    form.value = { name: '', description: '', exe: '', args: [], env: '' }
   }
   extraText.value = form.value.args.filter(e => e.raw).map(e => e.raw).join('\n')
-  // 拉取最新设置：模型目录（自动补全）+ 默认 exe（仅新建时套用）
+  // 拉取最新设置：模型目录（自动补全）+ 默认 exe（exe 为空时回退显示，便于预览）
   api.getSettings().then(s => {
     settings.value = s
-    if (!props.profile) form.value.exe = s.exe || ''
+    if (!form.value.exe.trim()) form.value.exe = s.exe || ''
   }).catch(() => {})
 })
 
@@ -201,7 +211,7 @@ function renderEntry(e) {
   return e.flag + ' ' + (e.quoted ? `"${e.value}"` : e.value)
 }
 function generateCommand(exe, list) {
-  return [exe, ...list.map(renderEntry)].join(' ')
+  return [exe || '(default llama-server)', ...list.map(renderEntry)].join(' ')
 }
 const preview = computed(() => generateCommand(form.value.exe, form.value.args))
 
@@ -258,24 +268,33 @@ async function onPasteParse() {
   if (!cmd) return
   try {
     const r = await api.parseCommand(cmd)
-    await ElMessageBox.confirm('解析成功，将覆盖当前表单的 exe 与全部参数。', '确认覆盖', { type: 'info' })
+    await ElMessageBox.confirm('Parsed OK. This will overwrite the current exe & all args.', 'CONFIRM OVERWRITE', { type: 'info', confirmButtonText: 'OK', cancelButtonText: 'CANCEL' })
     form.value.exe = r.exe
     form.value.args = r.args
     const f = r.fields
     if (f.alias) form.value.name = f.alias
     extraText.value = form.value.args.filter(e => e.raw).map(e => e.raw).join('\n')
-    ElMessage.success('已解析填入')
+    ElMessage.success('Parsed & filled')
   } catch (e) {
-    ElMessage.error('解析失败：' + e.message)
+    ElMessage.error('Parse failed: ' + e.message)
+  }
+}
+
+// ---------- 复制命令 ----------
+async function onCopyCmd() {
+  try {
+    await navigator.clipboard.writeText(preview.value)
+    ElMessage.success('Copied to clipboard')
+  } catch {
+    ElMessage.error('Copy failed')
   }
 }
 
 // ---------- 保存 ----------
 async function onSave() {
-  if (!form.value.name.trim()) return ElMessage.warning('请填写名称')
-  if (!form.value.exe.trim()) return ElMessage.warning('请填写 llama-server 路径')
+  if (!form.value.name.trim()) return ElMessage.warning('NAME required')
   if (!form.value.args.some(e => e.flag === '-m' || e.flag === '--model')) {
-    return ElMessage.warning('请至少指定模型路径 (-m)')
+    return ElMessage.warning('Model path (-m) is required')
   }
   saving.value = true
   try {
@@ -283,15 +302,16 @@ async function onSave() {
       name: form.value.name.trim(),
       description: form.value.description.trim(),
       exe: form.value.exe.trim(),
+      env: form.value.env.trim(),
       args: form.value.args
     }
     if (isEdit.value) await api.updateProfile(props.profile.id, payload)
     else await api.createProfile(payload)
-    ElMessage.success('已保存')
+    ElMessage.success('SAVED')
     emit('saved')
     vis.value = false
   } catch (e) {
-    ElMessage.error('保存失败：' + e.message)
+    ElMessage.error('Save failed: ' + e.message)
   } finally {
     saving.value = false
   }
@@ -303,11 +323,13 @@ async function onSave() {
 .paste { margin-bottom: 4px; }
 .slider-row { display: flex; align-items: center; gap: 10px; width: 100%; }
 .slider-row :deep(.el-slider) { flex: 1; }
-.slider-val { min-width: 44px; text-align: right; color: #606266; font-size: 12px; font-variant-numeric: tabular-nums; }
-.preview-label { color: #909399; font-size: 12px; margin-bottom: 4px; }
+.slider-val { min-width: 44px; text-align: right; color: var(--term-text-2); font-size: 12px; font-variant-numeric: tabular-nums; }
+.preview-head { display: flex; align-items: center; justify-content: space-between; }
+.preview-label { color: var(--term-text-3); font-size: 12px; margin-bottom: 4px; }
 pre.mono {
-  margin: 0; padding: 10px; background: #1d2939; color: #dce3ea;
-  border-radius: 6px; font-family: Consolas, monospace; font-size: 12px;
+  margin: 0; padding: 10px; background: #030705; color: var(--term-green);
+  border: 1px solid var(--term-border); border-radius: 2px;
+  font-family: var(--term-mono); font-size: 12px;
   white-space: pre-wrap; word-break: break-all; max-height: 120px; overflow-y: auto;
 }
 </style>

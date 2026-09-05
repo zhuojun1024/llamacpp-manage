@@ -61,8 +61,8 @@ app.get('/api/profiles', (req, res) => {
 
 app.post('/api/profiles', (req, res) => {
   const b = req.body || {}
-  if (!b.name || !b.exe || !Array.isArray(b.args)) {
-    return res.status(400).json({ error: '缺少 name / exe / args' })
+  if (!b.name || !Array.isArray(b.args)) {
+    return res.status(400).json({ error: 'Missing name / args' })
   }
   const profiles = store.loadProfiles()
   const now = Date.now()
@@ -70,8 +70,9 @@ app.post('/api/profiles', (req, res) => {
     id: store.newId(),
     name: String(b.name),
     description: String(b.description || ''),
-    exe: String(b.exe),
+    exe: String(b.exe || ''), // 可为空：启动时回退设置中的默认路径
     args: b.args,
+    env: String(b.env || ''), // 环境变量（KEY=VALUE 行），启动时合并进子进程
     createdAt: now,
     updatedAt: now
   }
@@ -83,13 +84,13 @@ app.post('/api/profiles', (req, res) => {
 // 拖拽排序：按前端给出的 id 顺序重排（须注册在 /:id 之前）
 app.put('/api/profiles/reorder', (req, res) => {
   const ids = (req.body || {}).ids
-  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: '缺少 ids 数组' })
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'Missing ids array' })
   const profiles = store.loadProfiles()
   const byId = new Map(profiles.map(p => [p.id, p]))
   const next = []
   for (const id of ids) {
     const p = byId.get(id)
-    if (!p) return res.status(400).json({ error: `未知配置 id: ${id}` })
+    if (!p) return res.status(400).json({ error: `Unknown profile id: ${id}` })
     next.push(p)
     byId.delete(id)
   }
@@ -102,11 +103,12 @@ app.put('/api/profiles/reorder', (req, res) => {
 app.put('/api/profiles/:id', (req, res) => {
   const profiles = store.loadProfiles()
   const p = profiles.find(x => x.id === req.params.id)
-  if (!p) return res.status(404).json({ error: '配置不存在' })
+  if (!p) return res.status(404).json({ error: 'Profile not found' })
   const b = req.body || {}
   if (b.name !== undefined) p.name = String(b.name)
   if (b.description !== undefined) p.description = String(b.description)
   if (b.exe !== undefined) p.exe = String(b.exe)
+  if (b.env !== undefined) p.env = String(b.env)
   if (Array.isArray(b.args)) p.args = b.args
   p.updatedAt = Date.now()
   store.saveProfiles(profiles)
@@ -115,11 +117,11 @@ app.put('/api/profiles/:id', (req, res) => {
 
 app.delete('/api/profiles/:id', (req, res) => {
   if (runner.get(req.params.id)) {
-    return res.status(409).json({ error: '该配置正在运行，请先停止' })
+    return res.status(409).json({ error: 'Profile is running, stop it first' })
   }
   const profiles = store.loadProfiles()
   const i = profiles.findIndex(x => x.id === req.params.id)
-  if (i < 0) return res.status(404).json({ error: '配置不存在' })
+  if (i < 0) return res.status(404).json({ error: 'Profile not found' })
   const [removed] = profiles.splice(i, 1)
   store.saveProfiles(profiles)
   res.json({ ok: true, removed: removed.name })
@@ -129,7 +131,7 @@ app.delete('/api/profiles/:id', (req, res) => {
 app.post('/api/profiles/:id/start', async (req, res) => {
   const profiles = store.loadProfiles()
   const p = profiles.find(x => x.id === req.params.id)
-  if (!p) return res.status(404).json({ error: '配置不存在' })
+  if (!p) return res.status(404).json({ error: 'Profile not found' })
   try {
     const run = await runner.start(p)
     res.json(run)
@@ -159,7 +161,7 @@ app.get('/api/runs/:id/log', (req, res) => {
 app.get('/api/runs/:id/logfile', (req, res) => {
   const run = runner.get(req.params.id)
   const file = run ? run.logFile : null
-  if (!file || !fs.existsSync(file)) return res.status(404).json({ error: '日志文件不存在' })
+  if (!file || !fs.existsSync(file)) return res.status(404).json({ error: 'Log file not found' })
   res.download(file, path.basename(file))
 })
 
@@ -169,18 +171,20 @@ app.post('/api/import', (req, res) => {
   let text = b.text
   if (!text && b.path) {
     try { text = fs.readFileSync(b.path, 'utf8') }
-    catch (err) { return res.status(400).json({ error: '读取文件失败：' + err.message }) }
+    catch (err) { return res.status(400).json({ error: 'Failed to read file: ' + err.message }) }
   }
-  if (!text) return res.status(400).json({ error: '请提供 text 或 path' })
+  if (!text) return res.status(400).json({ error: 'Provide text or path' })
 
   const items = P.importTxt(text)
   const profiles = store.loadProfiles()
-  const existingCmds = new Set(profiles.map(p => P.generateCommand(p)))
+  const defaultExe = store.loadSettings().exe
+  const withDefaultExe = (p) => p.exe ? p : { ...p, exe: defaultExe }
+  const existingCmds = new Set(profiles.map(p => P.generateCommand(withDefaultExe(p))))
   let added = 0, skipped = 0, failed = 0
   const now = Date.now()
   for (const item of items) {
     if (item.error) { failed++; continue }
-    const cmd = P.generateCommand(item)
+    const cmd = P.generateCommand(withDefaultExe(item))
     if (existingCmds.has(cmd)) { skipped++; continue }
     existingCmds.add(cmd)
     profiles.push({
@@ -189,6 +193,7 @@ app.post('/api/import', (req, res) => {
       description: item.description,
       exe: item.exe,
       args: item.args,
+      env: item.env || '',
       createdAt: now,
       updatedAt: now
     })
@@ -199,7 +204,9 @@ app.post('/api/import', (req, res) => {
 })
 
 app.get('/api/export', (req, res) => {
-  const text = P.exportTxt(store.loadProfiles())
+  // exe 为空的配置导出时回退默认路径，保证导出文件可直接执行
+  const defaultExe = store.loadSettings().exe
+  const text = P.exportTxt(store.loadProfiles().map(p => p.exe ? p : { ...p, exe: defaultExe }))
   res.type('text/plain; charset=utf-8')
   res.attachment('llama-server.txt')
   res.send(text)
@@ -221,7 +228,7 @@ app.get('/api/fields', (req, res) => {
 // ---------- 单条命令解析（表单"粘贴命令"用） ----------
 app.post('/api/parse', (req, res) => {
   const line = String((req.body || {}).command || '').trim()
-  if (!line) return res.status(400).json({ error: '请提供 command' })
+  if (!line) return res.status(400).json({ error: 'Provide command' })
   try {
     const { exe, args } = P.parseCommand(line)
     res.json({ exe, args, fields: P.fieldsOf(args) })
@@ -273,7 +280,7 @@ app.get('/api/browse', (req, res) => {
         if (e.isFile() && e.name.toLowerCase().endsWith('.gguf')) files.push(path.join(dir, e.name).replace(/\//g, '\\'))
       }
     } catch {
-      return res.json({ files: [], error: '目录不可读' })
+      return res.json({ files: [], error: 'Directory not readable' })
     }
   }
   res.json({ files })
@@ -322,7 +329,7 @@ if (fs.existsSync(distDir)) {
   app.use(express.static(distDir))
   app.get(/^(?!\/api|\/ws).*/, (req, res) => res.sendFile(path.join(distDir, 'index.html')))
 } else {
-  app.get('/', (req, res) => res.send('前端未构建，请先执行 npm run build'))
+  app.get('/', (req, res) => res.send('Frontend not built, run: npm run build'))
 }
 
 // ---------- 启动 ----------

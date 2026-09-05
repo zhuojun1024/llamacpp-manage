@@ -52,7 +52,7 @@ for (const it of items) {
   if (it.error) console.error(`  [FAIL] ${it.error}: ${it.message}`)
   else console.log(`  ${it.name}  ←  ${it.description || '(无描述)'}`)
 }
-const named = items.filter(i => !i.error && i.name && i.name !== '未命名')
+const named = items.filter(i => !i.error && i.name && i.name !== 'unnamed')
 if (named.length !== items.length - errs.length) {
   console.error('[FAIL] 存在未正确命名的配置')
   failed++

@@ -55,72 +55,96 @@ for (const [field, def] of Object.entries(FIELDS)) {
   for (const a of def.aliases) ALIAS_TO_FIELD[a] = field
 }
 
-// 字段元数据：中文标签 / 分组 / 控件类型（供前端表单渲染与 /api/fields）
+// 字段元数据：标签直接用 llama-server 原始 flag（供前端表单渲染与 /api/fields）
 const FIELD_META = {
-  model:            { label: '模型路径', group: 'basic' },
-  alias:            { label: '别名 (-a)', group: 'basic' },
-  mmproj:           { label: '视觉投影 mmproj', group: 'basic' },
-  draftModel:       { label: '草稿模型 (-md)', group: 'spec' },
-  host:             { label: '主机 (--host)', group: 'basic' },
-  port:             { label: '端口 (--port)', group: 'basic' },
-  ctxSize:          { label: '上下文长度 (-c)', group: 'perf', slider: { min: 32768, max: 262144, step: 4096 } },
-  nGpuLayers:       { label: 'GPU 层数 (-ngl)', group: 'perf' },
-  flashAttn:        { label: 'Flash Attention (-fa)', group: 'perf', options: ['on', 'off', 'auto'] },
-  cacheTypeK:       { label: 'K 缓存类型 (-ctk)', group: 'perf', options: ['f16', 'bf16', 'q8_0', 'q4_0', 'q4_1', 'iq4_nl', 'q5_0', 'q5_1'] },
-  cacheTypeV:       { label: 'V 缓存类型 (-ctv)', group: 'perf', options: ['f16', 'bf16', 'q8_0', 'q4_0', 'q4_1', 'iq4_nl', 'q5_0', 'q5_1'] },
-  splitMode:        { label: '分割模式 (-sm)', group: 'perf', options: ['layer', 'tensor'] },
-  tensorSplit:      { label: '张量分割 (-ts)', group: 'perf' },
-  noMmap:           { label: '禁用 mmap (--no-mmap)', group: 'perf', bool: true },
-  cacheRam:         { label: '缓存 RAM (-cram)', group: 'perf' },
-  kvUnswap:         { label: 'KV 不交换 (-kvu)', group: 'perf', bool: true },
-  parallel:         { label: '并行数 (-np)', group: 'perf' },
-  batchSize:        { label: '批大小 (-b)', group: 'perf' },
-  ubatchSize:       { label: '微批大小 (-ub)', group: 'perf' },
-  threads:          { label: '线程数 (-t)', group: 'perf' },
-  specType:         { label: '推测解码类型', group: 'spec', options: ['draft-mtp', 'draft-dflash'] },
-  specDraftNMax:    { label: '草稿最大 n', group: 'spec' },
-  specDraftPMin:    { label: '草稿最小 p', group: 'spec' },
-  temp:             { label: '温度 (--temp)', group: 'sample' },
-  topK:             { label: 'Top-K', group: 'sample' },
-  topP:             { label: 'Top-P', group: 'sample' },
-  repeatPenalty:    { label: '重复惩罚', group: 'sample' },
-  reasoningEffort:  { label: '推理强度', group: 'sample', options: ['low', 'medium', 'high', 'xhigh'] },
-  jinja:            { label: '启用 Jinja 模板', group: 'template', bool: true },
-  chatTemplateFile: { label: '对话模板文件', group: 'template' },
-  ropeScaling:      { label: 'RoPE 缩放方式', group: 'rope', options: ['linear', 'yarn', 'rope'] },
-  ropeScale:        { label: 'RoPE 缩放值', group: 'rope' },
-  yarnOrigCtx:      { label: 'YaRN 原始上下文', group: 'rope' },
-  noMmprojOffload:  { label: '禁用 mmproj 卸载', group: 'other', bool: true }
+  model:            { label: '-m', group: 'basic' },
+  alias:            { label: '-a', group: 'basic' },
+  mmproj:           { label: '-mm', group: 'basic' },
+  draftModel:       { label: '-md', group: 'spec' },
+  host:             { label: '--host', group: 'basic' },
+  port:             { label: '--port', group: 'basic' },
+  ctxSize:          { label: '-c', group: 'perf', slider: { min: 32768, max: 786432, step: 4096 } },
+  nGpuLayers:       { label: '-ngl', group: 'perf' },
+  flashAttn:        { label: '-fa', group: 'perf', options: ['on', 'off', 'auto'] },
+  cacheTypeK:       { label: '-ctk', group: 'perf', options: ['f16', 'bf16', 'q8_0', 'q4_0', 'q4_1', 'iq4_nl', 'q5_0', 'q5_1'] },
+  cacheTypeV:       { label: '-ctv', group: 'perf', options: ['f16', 'bf16', 'q8_0', 'q4_0', 'q4_1', 'iq4_nl', 'q5_0', 'q5_1'] },
+  splitMode:        { label: '-sm', group: 'perf', options: ['layer', 'tensor'] },
+  tensorSplit:      { label: '-ts', group: 'perf' },
+  noMmap:           { label: '--no-mmap', group: 'perf', bool: true },
+  cacheRam:         { label: '-cram', group: 'perf' },
+  kvUnswap:         { label: '-kvu', group: 'perf', bool: true },
+  parallel:         { label: '-np', group: 'perf' },
+  batchSize:        { label: '-b', group: 'perf' },
+  ubatchSize:       { label: '-ub', group: 'perf' },
+  threads:          { label: '-t', group: 'perf' },
+  specType:         { label: '--spec-type', group: 'spec', options: ['draft-mtp', 'draft-dflash'] },
+  specDraftNMax:    { label: '--spec-draft-n-max', group: 'spec' },
+  specDraftPMin:    { label: '--spec-draft-p-min', group: 'spec' },
+  temp:             { label: '--temp', group: 'sample' },
+  topK:             { label: '--top-k', group: 'sample' },
+  topP:             { label: '--top-p', group: 'sample' },
+  repeatPenalty:    { label: '--repeat-penalty', group: 'sample' },
+  reasoningEffort:  { label: '--reasoning-effort', group: 'sample', options: ['low', 'medium', 'high', 'xhigh'] },
+  jinja:            { label: '--jinja', group: 'template', bool: true },
+  chatTemplateFile: { label: '--chat-template-file', group: 'template' },
+  ropeScaling:      { label: '--rope-scaling', group: 'rope', options: ['linear', 'yarn', 'rope'] },
+  ropeScale:        { label: '--rope-scale', group: 'rope' },
+  yarnOrigCtx:      { label: '--yarn-orig-ctx', group: 'rope' },
+  noMmprojOffload:  { label: '--no-mmproj-offload', group: 'other', bool: true }
 }
 
 const GROUPS = [
-  { key: 'basic', label: '基础' },
-  { key: 'perf', label: '性能 / 显存' },
-  { key: 'spec', label: '推测解码' },
-  { key: 'sample', label: '采样' },
-  { key: 'template', label: '模板' },
-  { key: 'rope', label: 'RoPE' },
-  { key: 'other', label: '其他' }
+  { key: 'basic', label: 'BASIC' },
+  { key: 'perf', label: 'PERF / VRAM' },
+  { key: 'spec', label: 'SPECULATIVE' },
+  { key: 'sample', label: 'SAMPLING' },
+  { key: 'template', label: 'TEMPLATE' },
+  { key: 'rope', label: 'ROPE' },
+  { key: 'other', label: 'OTHER' }
 ]
 
-/** 分词：处理双引号；引号内的空格不切分，引号本身被剥离（quoted 标记记录） */
+/**
+ * 分词：处理双引号 / 单引号 / \" 转义；引号内的空格不切分，引号本身被剥离（quoted 标记记录）
+ *  - 双引号：内部 \" 为转义的双引号；其余反斜杠原样保留（不影响 Windows 路径与 UNC 路径）
+ *  - 单引号：内容完全字面量，直到下一个单引号（适合包含双引号的取值，如 JSON：
+ *    --chat-template-kwargs '{"enable_thinking":false}'）
+ */
 function tokenize(line) {
   const tokens = []
   let cur = ''
-  let inQ = false
+  let quote = null // 当前打开的引号字符：'"' / "'" / null
   let quoted = false
-  for (const ch of line) {
-    if (ch === '"') {
-      inQ = !inQ
+  const push = () => {
+    if (cur !== '') { tokens.push({ text: cur, quoted }); cur = ''; quoted = false }
+  }
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]
+    if (quote === '"') {
+      if (ch === '\\' && line[i + 1] === '"') { cur += '"'; i++ }
+      else if (ch === '"') quote = null
+      else cur += ch
+    } else if (quote === "'") {
+      if (ch === "'") quote = null
+      else cur += ch
+    } else if (ch === '"' || ch === "'") {
+      quote = ch
       quoted = true
-    } else if (!inQ && /\s/.test(ch)) {
-      if (cur !== '') { tokens.push({ text: cur, quoted }); cur = ''; quoted = false }
+    } else if (/\s/.test(ch)) {
+      push()
     } else {
       cur += ch
     }
   }
-  if (cur !== '') tokens.push({ text: cur, quoted })
+  push()
   return tokens
+}
+
+/** 重新给 token 取值加引号：含双引号的值优先用单引号包裹，保证再次分词无损 */
+function requote(text, quoted) {
+  if (!quoted) return text
+  if (text.includes('"') && !text.includes("'")) return `'${text}'`
+  if (text.includes('"')) return '"' + text.replace(/"/g, '\\"') + '"'
+  return `"${text}"`
 }
 
 /** 判断一个 token 是否"看起来像 flag"（用于给未知 flag 归组取值） */
@@ -143,7 +167,7 @@ function parseArgs(tokens) {
     if (field) {
       const def = FIELDS[field]
       if (def.takesValue) {
-        if (i + 1 >= tokens.length) throw new Error(`参数 ${tok.text} 缺少取值`)
+        if (i + 1 >= tokens.length) throw new Error(`Arg ${tok.text} is missing a value`)
         const v = tokens[i + 1]
         args.push({ flag: tok.text, value: v.text, quoted: v.quoted })
         i += 2
@@ -155,7 +179,7 @@ function parseArgs(tokens) {
       // 未知 flag：若下一 token 不像 flag 则视为其取值，一并原样保留
       let raw = tok.text
       if (i + 1 < tokens.length && !looksLikeFlag(tokens[i + 1].text)) {
-        raw += ' ' + (tokens[i + 1].quoted ? `"${tokens[i + 1].text}"` : tokens[i + 1].text)
+        raw += ' ' + requote(tokens[i + 1].text, tokens[i + 1].quoted)
         i += 2
       } else {
         i += 1
@@ -163,7 +187,7 @@ function parseArgs(tokens) {
       args.push({ raw })
     } else {
       // 游离的非 flag token（异常输入），原样保留
-      args.push({ raw: tok.quoted ? `"${tok.text}"` : tok.text })
+      args.push({ raw: requote(tok.text, tok.quoted) })
       i += 1
     }
   }
@@ -197,7 +221,7 @@ function generateCommand(profile) {
 /** 解析单条命令行 → { exe, args } */
 function parseCommand(line) {
   const tokens = tokenize(line)
-  if (tokens.length < 2) throw new Error('命令行不完整：' + line)
+  if (tokens.length < 2) throw new Error('Incomplete command: ' + line)
   const exe = tokens[0].text
   return { exe, args: parseArgs(tokens.slice(1)) }
 }
@@ -209,22 +233,29 @@ function baseNameNoExt(p) {
 }
 
 /**
- * 导入 txt：`# 注释行` → 描述，命令行 → profile
- * 返回 [{ name, description, exe, args }]
+ * 导入 txt：`# 注释行` → 描述，`# env KEY=VALUE` 行 → 环境变量，命令行 → profile
+ * 返回 [{ name, description, exe, args, env }]
  */
 function importTxt(text) {
   const items = []
   let pendingDesc = ''
+  let pendingEnv = ''
   for (const raw of String(text).split(/\r?\n/)) {
     const line = raw.trim()
     if (!line) continue
-    if (line.startsWith('#')) { pendingDesc = line.slice(1).trim(); continue }
+    if (line.startsWith('#')) {
+      const body = line.slice(1).trim()
+      if (/^env\s+/i.test(body)) pendingEnv += body.replace(/^env\s+/i, '') + '\n'
+      else pendingDesc = body
+      continue
+    }
     try {
       const { exe, args } = parseCommand(line)
       const f = fieldsOf(args)
-      const name = f.alias || (f.model ? baseNameNoExt(f.model) : '未命名')
-      items.push({ name, description: pendingDesc, exe, args })
+      const name = f.alias || (f.model ? baseNameNoExt(f.model) : 'unnamed')
+      items.push({ name, description: pendingDesc, exe, args, env: pendingEnv.trim() })
       pendingDesc = ''
+      pendingEnv = ''
     } catch (err) {
       items.push({ error: line, message: err.message })
     }
@@ -232,12 +263,16 @@ function importTxt(text) {
   return items
 }
 
-/** 导出 txt（兼容现有 llama-server.txt / llama-launch.ps1 格式） */
+/** 导出 txt（兼容现有 llama-server.txt / llama-launch.ps1 格式；env 以 `# env KEY=VALUE` 行承载） */
 function exportTxt(profiles) {
   const blocks = []
   for (const p of profiles) {
     const lines = []
     if (p.description) lines.push('# ' + p.description)
+    for (const l of String(p.env || '').split('\n')) {
+      const t = l.trim()
+      if (t) lines.push('# env ' + t)
+    }
     lines.push(generateCommand(p))
     blocks.push(lines.join('\n'))
   }
@@ -247,7 +282,7 @@ function exportTxt(profiles) {
 /** 表单写回：设置/清除结构化字段，保留既有条目的拼写与位置 */
 function setField(args, field, value) {
   const def = FIELDS[field]
-  if (!def) throw new Error('未知字段: ' + field)
+  if (!def) throw new Error('Unknown field: ' + field)
   const list = Array.isArray(args) ? args.slice() : []
   const idx = []
   list.forEach((e, i) => { if (e.flag && ALIAS_TO_FIELD[e.flag] === field) idx.push(i) })
@@ -274,6 +309,19 @@ function setField(args, field, value) {
   return list.filter((_, i) => !idx.includes(i))
 }
 
+/** 解析 env 文本（每行 KEY=VALUE，# 注释行忽略）→ 对象；非法行抛错 */
+function parseEnv(text) {
+  const out = {}
+  for (const raw of String(text || '').split(/\r?\n/)) {
+    const line = raw.trim()
+    if (!line || line.startsWith('#')) continue
+    const i = line.indexOf('=')
+    if (i <= 0) throw new Error('Invalid env line (expect KEY=VALUE): ' + line)
+    out[line.slice(0, i).trim()] = line.slice(i + 1).trim()
+  }
+  return out
+}
+
 module.exports = {
   FIELDS,
   FIELD_META,
@@ -286,5 +334,6 @@ module.exports = {
   importTxt,
   exportTxt,
   setField,
-  baseNameNoExt
+  baseNameNoExt,
+  parseEnv
 }

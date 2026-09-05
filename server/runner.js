@@ -13,7 +13,7 @@ const { spawn, spawnSync } = require('child_process')
 const fs = require('fs')
 const net = require('net')
 const { LOGS_DIR } = require('./store')
-const { fieldsOf, generateCommand, tokenize } = require('./parser')
+const { fieldsOf, generateCommand, tokenize, parseEnv } = require('./parser')
 
 const LOG_RING = 5000 // 每个 run 内存中保留的最近行数（WS 断线补拉用）
 
@@ -115,18 +115,18 @@ class Runner {
   /** 启动一个 profile；同时只允许运行一个模型；端口被占则抛错 */
   async start(profile) {
     const existing = this.runs.get(profile.id)
-    if (existing) throw new Error('该配置已有运行中的实例（' + existing.status + '）')
+    if (existing) throw new Error('Profile already has a running instance (' + existing.status + ')')
     if (this.runs.size > 0) {
       const other = [...this.runs.values()][0]
       const name = (this.store.loadProfiles().find(x => x.id === other.profileId) || {}).name || other.profileId
-      throw new Error(`已有模型「${name}」在运行，每次只能运行一个模型，请先停止`)
+      throw new Error(`Model "${name}" is already running. Only one model at a time, stop it first`)
     }
 
     const f = fieldsOf(profile.args)
     const port = f.port ? Number(f.port) : 8080
     const host = f.host || '127.0.0.1'
     if (await portInUse(port)) {
-      throw new Error(`端口 ${port} 已被占用，请修改该配置的端口后重试`)
+      throw new Error(`Port ${port} is already in use. Change the port in this profile and retry`)
     }
 
     // 由 args 条目重建 argv（不经过 shell，避免引号歧义）
@@ -139,6 +139,19 @@ class Runner {
       }
     }
 
+    // exe 为空时回退设置中的默认 llama-server 路径
+    const exe = profile.exe || this.store.loadSettings().exe
+    if (!exe) throw new Error('llama-server path not set: fill it in the profile or global settings')
+
+    // 环境变量：配置中的 env（KEY=VALUE 行）合并到进程环境
+    let env = process.env
+    if (profile.env) {
+      let extra
+      try { extra = parseEnv(profile.env) }
+      catch (err) { throw new Error(err.message) }
+      env = { ...process.env, ...extra }
+    }
+
     const now = Date.now()
     const logFile = this.store.logFile(profile.id, now)
     this.store.pruneLogs(profile.id, this.store.loadSettings().logKeep)
@@ -146,14 +159,15 @@ class Runner {
 
     let child
     try {
-      child = spawn(profile.exe, argv, {
-        cwd: require('path').dirname(profile.exe),
+      child = spawn(exe, argv, {
+        cwd: require('path').dirname(exe),
         windowsHide: true,
-        stdio: ['ignore', 'pipe', 'pipe']
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env
       })
     } catch (err) {
       logStream.end()
-      throw new Error('启动失败：' + err.message)
+      throw new Error('Start failed: ' + err.message)
     }
 
     const run = {
@@ -176,11 +190,11 @@ class Runner {
     child.stderr.on('data', onData)
 
     child.on('error', (err) => {
-      this._appendLine(run, `[管理器] 进程错误：${err.message}`, 'error')
+      this._appendLine(run, `[MANAGER] process error: ${err.message}`, 'error')
       this._finish(run, -1)
     })
     child.on('exit', (code, signal) => {
-      this._appendLine(run, `[管理器] 进程已退出 code=${code} signal=${signal || '-'}`, code === 0 ? 'normal' : 'error')
+      this._appendLine(run, `[MANAGER] process exited code=${code} signal=${signal || '-'}`, code === 0 ? 'normal' : 'error')
       this._finish(run, code)
     })
 
@@ -225,7 +239,7 @@ class Runner {
   /** 停止：仅按已记录 PID 精确终止 */
   async stop(profileId) {
     const run = this.runs.get(profileId)
-    if (!run) throw new Error('没有运行中的实例')
+    if (!run) throw new Error('No running instance')
     const pid = run.pid
     if (run.child) {
       try { run.child.kill() } catch { /* 已退出 */ }
@@ -236,7 +250,7 @@ class Runner {
     } else {
       // lost 进程：无 ChildProcess 句柄，按 runtime.json 记录的 PID 精确终止
       const ok = killByPid(pid)
-      if (!ok) throw new Error(`taskkill 未能终止 PID ${pid}（可能已退出或权限不足）`)
+      if (!ok) throw new Error(`taskkill failed to terminate PID ${pid} (already exited or insufficient privileges)`)
       this._finish(run, null)
     }
     return true
