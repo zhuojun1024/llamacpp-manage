@@ -24,12 +24,12 @@
             <div class="gpu-idx">GPU {{ g.index }}</div>
             <div class="gpu-metric">
               <span class="gpu-metric-label">VRAM</span>
-              <span class="gpu-meter"><i class="gpu-meter-fill" :style="{ width: g.memPct + '%', background: barColor(g.memPct) }"></i></span>
+              <span class="gpu-meter"><i class="gpu-meter-fill" :style="{ width: g.memPct + '%' }"></i></span>
               <span class="gpu-metric-value">{{ g.memUsedGb.toFixed(2) }} GB</span>
             </div>
             <div class="gpu-metric">
               <span class="gpu-metric-label">UTIL</span>
-              <span class="gpu-meter"><i class="gpu-meter-fill" :style="{ width: g.util + '%', background: barColor(g.util) }"></i></span>
+              <span class="gpu-meter"><i class="gpu-meter-fill" :style="{ width: g.util + '%' }"></i></span>
               <span class="gpu-metric-value">{{ g.util }}%</span>
             </div>
           </div>
@@ -72,9 +72,6 @@ async function pollGpus() {
     const data = await api.gpus()
     gpuList.value = data.gpus || []
   } catch { gpuList.value = [] }
-}
-function barColor(pct) {
-  return pct >= 90 ? '#ff5252' : pct >= 70 ? '#ffb000' : '#00e676'
 }
 let gpuTimer = null
 onMounted(() => {
@@ -223,7 +220,7 @@ async function extendUp(el) {
 .gpu-metric { display: flex; align-items: center; gap: 8px; }
 .gpu-metric-label { flex: none; width: 36px; font-size: 12px; color: var(--term-text-2); }
 .gpu-meter { flex: none; width: 72px; height: 4px; border-radius: 2px; background: var(--term-border-2); overflow: hidden; }
-.gpu-meter-fill { display: block; height: 100%; border-radius: 2px; transition: width 0.3s ease; box-shadow: 0 0 6px rgba(0, 230, 118, 0.4); }
+.gpu-meter-fill { display: block; height: 100%; border-radius: 2px; background: var(--term-green); transition: width 0.3s ease; box-shadow: 0 0 6px rgba(0, 230, 118, 0.4); }
 .gpu-metric-value { font-size: 12px; font-weight: 600; color: var(--term-text); font-variant-numeric: tabular-nums; min-width: 64px; text-align: right; }
 .logbox {
   flex: 1; overflow-y: auto; background: #030705;
