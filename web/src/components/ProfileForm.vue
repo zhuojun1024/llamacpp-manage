@@ -14,17 +14,17 @@
         <el-row :gutter="12">
           <el-col :span="12">
             <el-form-item label="NAME" required>
-              <el-input v-model="form.name" placeholder="profile name" />
+              <el-input v-model="form.name" placeholder="profile name" clearable />
             </el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="DESC">
-              <el-input v-model="form.description" placeholder="notes (speed, use case...)" />
+              <el-input v-model="form.description" placeholder="notes (speed, use case...)" clearable />
             </el-form-item>
           </el-col>
         </el-row>
         <el-form-item label="llama-server">
-          <el-input v-model="form.exe" placeholder="empty = use default path from settings" />
+          <el-input v-model="form.exe" placeholder="empty = use default path from settings" clearable />
         </el-form-item>
 
         <template v-for="g in groups" :key="g.key">
@@ -141,11 +141,8 @@ watch(() => props.visible, (v) => {
     form.value = { name: '', description: '', exe: '', args: [], env: '' }
   }
   extraText.value = form.value.args.filter(e => e.raw).map(e => e.raw).join('\n')
-  // 拉取最新设置：模型目录（自动补全）+ 默认 exe（exe 为空时回退显示，便于预览）
-  api.getSettings().then(s => {
-    settings.value = s
-    if (!form.value.exe.trim()) form.value.exe = s.exe || ''
-  }).catch(() => {})
+  // 拉取最新设置：模型目录（自动补全）+ 默认 exe（仅用于预览回退显示，不写回 form）
+  api.getSettings().then(s => { settings.value = s }).catch(() => {})
 })
 
 // ---------- 字段派生与写回（本地同步，与后端 parser 同算法） ----------
@@ -213,7 +210,9 @@ function renderEntry(e) {
 function generateCommand(exe, list) {
   return [exe || '(default llama-server)', ...list.map(renderEntry)].join(' ')
 }
-const preview = computed(() => generateCommand(form.value.exe, form.value.args))
+// exe 为空时预览回退到设置中的默认路径（仅显示，不写回 form）
+const preview = computed(() =>
+  generateCommand(form.value.exe.trim() || settings.value.exe || '', form.value.args))
 
 // ---------- 路径自动补全 ----------
 const isPathField = (name) => ['model', 'mmproj', 'draftModel', 'chatTemplateFile'].includes(name)
