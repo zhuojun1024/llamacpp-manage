@@ -290,18 +290,22 @@ app.get('/api/browse', (req, res) => {
 app.get('/api/gpus', (req, res) => {
   const { execFile } = require('child_process')
   execFile('nvidia-smi', [
-    '--query-gpu=index,utilization.gpu,memory.used,memory.total',
+    '--query-gpu=index,name,utilization.gpu,memory.used,memory.total,power.draw,power.limit,temperature.gpu',
     '--format=csv,noheader,nounits'
   ], { windowsHide: true, timeout: 3000 }, (err, stdout) => {
     if (err) return res.json({ gpus: [] }) // 无 nvidia-smi / 无 NVIDIA 显卡：返回空
     const gpus = String(stdout).trim().split(/\r?\n/).filter(Boolean).map(line => {
-      const [index, util, memUsedMiB, memTotalMiB] = line.split(',').map(s => s.trim())
+      const [index, name, util, memUsedMiB, memTotalMiB, powerW, powerLimitW, tempC] = line.split(',').map(s => s.trim())
       const used = Number(memUsedMiB) || 0, total = Number(memTotalMiB) || 0
       return {
         index: Number(index),
+        name: name || `GPU ${index}`, // 真实型号名（如 NVIDIA GeForce RTX 4090）
         util: Number(util) || 0,
         memPct: total ? Math.round(used / total * 100) : 0,
-        memUsedGb: Math.round(used / 1024 * 100) / 100 // MiB → GB，保留两位小数
+        memUsedGb: Math.round(used / 1024 * 100) / 100, // MiB → GB，保留两位小数
+        powerW: Math.round((Number(powerW) || 0) * 10) / 10, // 当前功率 W
+        powerLimitW: Math.round((Number(powerLimitW) || 0) * 10) / 10, // 功率上限（TDP）W，作功率条分母
+        tempC: Number(tempC) || 0 // 温度 °C
       }
     })
     res.json({ gpus })

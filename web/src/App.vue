@@ -32,7 +32,7 @@
       <div class="tab-actions" v-if="tab === 'profiles'">
         <el-input v-model="filter" placeholder="search name / model / desc" size="small" clearable style="width: 240px" />
       </div>
-      <div class="tab-actions" v-else-if="activeRun">
+      <div class="tab-actions" v-else-if="activeView">
         <el-input v-model="logFilter" placeholder="filter logs" size="small" clearable style="width: 160px" />
         <el-checkbox v-model="autoScroll" size="small">AUTO-SCROLL</el-checkbox>
         <el-button link @click="onDownload">LOG</el-button>
@@ -42,7 +42,7 @@
 
     <div class="tab-body">
       <ProfileTable v-show="tab === 'profiles'" :filter="filter" @new="onNew" @edit="onEdit" @started="tab = 'logs'" />
-      <LogPanel v-show="tab === 'logs'" :filter="logFilter" :auto-scroll="autoScroll" v-model:fullscreen="fullscreen" />
+      <LogPanel v-show="tab === 'logs'" :filter="logFilter" :auto-scroll="autoScroll" v-model:fullscreen="fullscreen" @show-logs="tab = 'logs'" />
     </div>
 
     <ProfileForm v-model:visible="formVisible" :profile="editing" @saved="refreshProfiles" />
@@ -77,7 +77,14 @@ const filter = ref('') // 启动配置：搜索
 const logFilter = ref('') // 实时日志：过滤
 const autoScroll = ref(true)
 const fullscreen = ref(false)
-const activeRun = computed(() => Object.values(state.runs)[0] || null)
+// 当前日志视图：运行中的 run，或最近退出的 run（保留日志供查看报错）
+const activeView = computed(() => {
+  const run = Object.values(state.runs)[0] || null
+  if (run) return { profileId: run.profileId, exited: false, code: null, logFile: run.logFile }
+  const le = state.lastExited
+  if (le && state.logs[le.profileId]) return { profileId: le.profileId, exited: true, code: le.code, logFile: le.logFile }
+  return null
+})
 
 function onNew() {
   editing.value = null
@@ -95,18 +102,18 @@ async function onExport() {
     ElMessage.error('Export failed: ' + e.message)
   }
 }
-// 下载当前运行实例的日志文件
+// 下载当前实例（运行中或最近退出）的日志文件
 async function onDownload() {
-  const run = activeRun.value
-  if (!run) return
+  const view = activeView.value
+  if (!view) return
   try {
-    const resp = await fetch(`/api/runs/${run.profileId}/logfile`)
+    const resp = await fetch(`/api/runs/${view.profileId}/logfile`)
     if (!resp.ok) throw new Error('Log file not found')
     const blob = await resp.blob()
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = run.logFile ? run.logFile.split('\\').pop() : 'run.log'
+    a.download = view.logFile ? view.logFile.split('\\').pop() : 'run.log'
     a.click()
     URL.revokeObjectURL(url)
   } catch (e) {

@@ -1,11 +1,14 @@
 <template>
   <div :class="['log-panel', { fullscreen }]">
-    <el-empty v-if="!runList.length" description="No running instance. Hit START and logs will stream here." :image-size="80" />
+    <el-empty v-if="!activeView" description="No running instance. Hit START and logs will stream here." :image-size="80" />
 
-    <div v-else class="run-panel">
+    <div v-else class="run-panel" :class="{ 'is-exited': activeView.exited }">
       <!-- 关键信息卡片（左侧实例信息 + 右侧 GPU 显存/利用率） -->
       <div class="keyinfo-bar">
-        <div class="keyinfo" v-if="activeKeyInfo.listenPort || activeKeyInfo.loadTimeMs">
+        <div class="keyinfo" v-if="activeView.exited">
+          <el-tag type="danger" size="small">EXITED (code {{ activeView.code }})</el-tag>
+        </div>
+        <div class="keyinfo" v-else-if="activeKeyInfo.listenPort || activeKeyInfo.loadTimeMs">
           <el-tag v-if="activeKeyInfo.listenPort" type="success" size="small">
             LISTEN {{ activeKeyInfo.listenHost || 'localhost' }}:{{ activeKeyInfo.listenPort }}
           </el-tag>
@@ -16,12 +19,12 @@
             {{ statusText(activeRun.status) }}
           </el-tag> -->
         </div>
-        <div class="keyinfo lost-tip" v-else-if="activeRun.status === 'lost'">
+        <div class="keyinfo lost-tip" v-else-if="activeRun && activeRun.status === 'lost'">
           <el-tag type="danger" size="small">LOST: process alive but not started by manager, no log stream (PID {{ activeRun.pid }}). STOP still works.</el-tag>
         </div>
         <div class="gpu-tags" v-if="gpuList.length">
           <div class="gpu-item" v-for="g in gpuList" :key="g.index">
-            <div class="gpu-idx">GPU {{ g.index }}</div>
+            <div class="gpu-idx" :title="g.name">{{ g.name }}</div>
             <div class="gpu-metric">
               <span class="gpu-metric-label">VRAM</span>
               <span class="gpu-meter"><i class="gpu-meter-fill" :style="{ width: g.memPct + '%' }"></i></span>
@@ -31,6 +34,16 @@
               <span class="gpu-metric-label">UTIL</span>
               <span class="gpu-meter"><i class="gpu-meter-fill" :style="{ width: g.util + '%' }"></i></span>
               <span class="gpu-metric-value">{{ g.util }}%</span>
+            </div>
+            <div class="gpu-metric">
+              <span class="gpu-metric-label">PWR</span>
+              <span class="gpu-meter"><i class="gpu-meter-fill" :style="{ width: pwrPct(g) + '%' }"></i></span>
+              <span class="gpu-metric-value">{{ parseInt(g.powerW) }}W</span>
+            </div>
+            <div class="gpu-metric">
+              <span class="gpu-metric-label">TEMP</span>
+              <span class="gpu-meter"><i class="gpu-meter-fill" :class="{ hot: g.tempC >= 80 }" :style="{ width: Math.min(100, g.tempC) + '%' }"></i></span>
+              <span class="gpu-metric-value">{{ g.tempC }}°C</span>
             </div>
           </div>
         </div>
@@ -61,7 +74,7 @@ const props = defineProps({
   autoScroll: { type: Boolean, default: true },
   fullscreen: { type: Boolean, default: false }
 })
-const emit = defineEmits(['update:fullscreen'])
+const emit = defineEmits(['update:fullscreen', 'show-logs'])
 const gpuList = ref([]) // 本机 NVIDIA 显卡（显存/利用率）
 
 function onKeydown(e) {
@@ -104,16 +117,35 @@ function onTouchMove(e) {
 
 const runList = computed(() => Object.values(state.runs))
 const activeRun = computed(() => runList.value[0] || null) // 同时只运行一个模型
-const activeBuf = computed(() => (activeRun.value ? logBuf(activeRun.value.profileId) : null))
+// 当前日志视图：优先运行中的 run；无运行实例时回退到「最近退出」的 run（保留其日志供查看报错）
+const activeView = computed(() => {
+  if (activeRun.value) return { profileId: activeRun.value.profileId, exited: false, code: null }
+  const le = state.lastExited
+  if (le && state.logs[le.profileId]) return { profileId: le.profileId, exited: true, code: le.code }
+  return null
+})
+const activeBuf = computed(() => (activeView.value ? logBuf(activeView.value.profileId) : null))
 const activeKeyInfo = computed(() => (activeBuf.value ? activeBuf.value.keyInfo : {}))
 const totalLines = computed(() => (activeBuf.value ? activeBuf.value.lines.length : 0))
+// 环形缓冲满后 lines.length 恒为 LOG_LIMIT，totalLines 不再变化；
+// 改用最新行 id（单调递增、头部裁剪不影响）作为「有新日志」信号，驱动自动滚动
+const lastLineId = computed(() => {
+  const lines = activeBuf.value ? activeBuf.value.lines : []
+  return lines.length ? lines[lines.length - 1].id : 0
+})
 
 function statusText(s) {
-  return { starting: 'STARTING', running: 'RUNNING', lost: 'LOST' }[s] || (s || '').toUpperCase()
+  return { starting: 'STARTING', running: 'RUNNING', lost: 'LOST', exited: 'EXITED' }[s] || (s || '').toUpperCase()
+}
+// 功率条百分比：以 nvidia-smi 报告的功率上限（TDP）为分母；取不到时回退 450W
+function pwrPct(g) {
+  const cap = g.powerLimitW > 0 ? g.powerLimitW : 450
+  return Math.min(100, g.powerW / cap * 100)
 }
 
 // 渲染窗口 [viewStart, viewStart+RENDER_LIMIT)：位于底部时跟随最新行；
 // 用户向上滚动后起点冻结，新日志追加在下方，不打断阅读
+let lastTop = -1 // 上次 scrollTop，用于判断滚动方向（仅手动模式使用）
 const viewStartRef = ref(0)
 const viewStart = computed(() => Math.min(viewStartRef.value, Math.max(0, totalLines.value - RENDER_LIMIT)))
 const visibleLines = computed(() => {
@@ -128,7 +160,8 @@ function activeBox() {
 }
 
 // 新日志到达：自动滚动模式始终跟随最新；手动模式仅在用户停留在底部时跟随
-watch(totalLines, async () => {
+// 监听 lastLineId 而非 totalLines：缓冲满后 totalLines 恒定，watch 会永久失效
+watch(lastLineId, async () => {
   if (props.autoScroll) {
     viewStartRef.value = Math.max(0, totalLines.value - RENDER_LIMIT)
     await scrollBottom()
@@ -146,19 +179,26 @@ watch(() => props.autoScroll, async (v) => {
     await scrollBottom()
   }
 })
-// 运行实例变化（启动/停止）时重置滚动状态并回到最新日志
-watch(() => activeRun.value && activeRun.value.profileId, async () => {
+// 日志视图切换（启动 / 退出 / 回退到最近退出）时重置滚动状态并回到最新日志
+watch(() => activeView.value && activeView.value.profileId, async () => {
   atBottom = true
   lastTop = -1
   viewStartRef.value = 0
   if (props.autoScroll) await scrollBottom()
+})
+// 进入「最近退出」视图时自动切到日志 tab，确保用户能看到报错日志
+const showExited = ref(false)
+watch(() => activeView.value && activeView.value.exited, async (exited) => {
+  if (exited && !showExited.value) {
+    showExited.value = true
+    // emit('show-logs')
+  }
 })
 async function scrollBottom() {
   await nextTick()
   const el = activeBox()
   if (el) el.scrollTop = el.scrollHeight
 }
-let lastTop = -1 // 上次 scrollTop，用于判断滚动方向（仅手动模式使用）
 function onScroll() {
   const el = activeBox()
   if (!el) return
@@ -216,11 +256,12 @@ async function extendUp(el) {
   display: flex; flex-direction: column; gap: 0 5px;
   padding: 6px 10px; background: var(--term-bg-3); border: 1px solid var(--term-border); border-radius: 2px;
 }
-.gpu-idx { font-size: 11px; font-weight: 600; color: var(--term-green); letter-spacing: 0.4px; line-height: 1; }
+.gpu-idx { font-size: 11px; font-weight: 600; color: var(--term-green); letter-spacing: 0.4px; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
 .gpu-metric { display: flex; align-items: center; gap: 8px; }
 .gpu-metric-label { flex: none; width: 36px; font-size: 12px; color: var(--term-text-2); }
 .gpu-meter { flex: none; width: 72px; height: 4px; border-radius: 2px; background: var(--term-border-2); overflow: hidden; }
 .gpu-meter-fill { display: block; height: 100%; border-radius: 2px; background: var(--term-green); transition: width 0.3s ease; box-shadow: 0 0 6px rgba(0, 230, 118, 0.4); }
+.gpu-meter-fill.hot { background: var(--term-red, #ff5252); box-shadow: 0 0 6px rgba(255, 82, 82, 0.5); }
 .gpu-metric-value { font-size: 12px; font-weight: 600; color: var(--term-text); font-variant-numeric: tabular-nums; min-width: 64px; text-align: right; }
 .logbox {
   flex: 1; overflow-y: auto; background: #030705;

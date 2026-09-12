@@ -9,7 +9,8 @@ export const state = reactive({
   runs: {},              // profileId -> run 视图
   logs: {},              // profileId -> { lines: [], keyInfo: {} }
   connected: false,
-  loading: false
+  loading: false,
+  lastExited: null // 最近一次退出的 run（{ profileId, code, logFile }）：退出后保留其日志供查看报错
 })
 
 let nextLineId = 1 // 行 id（单调递增）：作列表渲染的稳定 key，头部裁剪不再引起整表 diff
@@ -90,6 +91,11 @@ export function connect() {
         appendLog(msg.profileId, msg.line, msg.level, msg.ts)
         break
       case 'status':
+        // 该配置启动新 run：清掉其「最近退出」记录与旧日志缓冲，避免旧日志与新 run 混淆
+        if (state.lastExited && state.lastExited.profileId === msg.run.profileId) {
+          state.lastExited = null
+          delete state.logs[msg.run.profileId]
+        }
         state.runs[msg.run.profileId] = msg.run
         logBuf(msg.run.profileId).keyInfo = { ...msg.run.keyInfo }
         refreshProfiles()
@@ -97,7 +103,9 @@ export function connect() {
       case 'exit': {
         const run = state.runs[msg.profileId]
         if (run) delete state.runs[msg.profileId]
-        delete state.logs[msg.profileId] // 释放日志缓冲，避免重启同一配置时残留旧日志
+        // 保留日志缓冲：启动报错/退出后仍能查看报错日志；
+        // 记录退出信息供日志面板展示 EXITED 状态。缓冲在「同一配置再次启动」时清空（见 status 分支）。
+        state.lastExited = { profileId: msg.profileId, code: msg.code, logFile: run ? run.logFile : null }
         refreshProfiles()
         break
       }
